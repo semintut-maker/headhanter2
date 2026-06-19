@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Container,
   Grid,
@@ -14,6 +14,7 @@ import {
   Button,
   Group,
   Flex,
+  Tabs,
 } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
 import type { RootState, AppDispatch } from "../store/store";
@@ -23,9 +24,8 @@ import {
   fetchVacanciesFailure,
 } from "../store/slices/vacanciesSlice";
 import { setCurrentPage, setTotalPages } from "../store/slices/paginationSlice";
-import { setSearch, setCity, setSkills } from "../store/slices/filtersSlice";
+import { setSearch, setSkills } from "../store/slices/filtersSlice";
 import { fetchJobs } from "../api/jobsApi";
-import CitySelect from "../components/CitySelect";
 import SkillsInput from "../components/SkillsInput";
 import VacanciesList from "../components/VacanciesList";
 import PaginationComponent from "../components/PaginationComponent";
@@ -35,58 +35,62 @@ import { useMantineTheme } from "@mantine/core";
 export default function VacanciesPage() {
   const theme = useMantineTheme();
   const dispatch = useDispatch<AppDispatch>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const activeTab =
+    location.pathname.includes("moscow") ? "moscow" : "petersburg";
+  const city = activeTab === "moscow" ? "Москва" : "Санкт-Петербург";
+
   const filters = useSelector((state: RootState) => state.filters);
   const { currentPage, itemsPerPage } = useSelector(
     (state: RootState) => state.pagination,
   );
 
-  const [searchParams, setSearchParams] = useSearchParams();
   const [localSearch, setLocalSearch] = useState(filters.search);
   const debouncedSearch = useDebounce(localSearch, 500);
   const isFirstRender = useRef(true);
 
-  // 1. Чтение параметров из URL при монтировании (только один раз)
+  // Чтение параметров из URL при первом рендере
   useEffect(() => {
     if (isFirstRender.current) {
       const search = searchParams.get("search") || "";
-      const city = searchParams.get("city") || "";
       const skillsParam = searchParams.get("skills") || "";
       const skills = skillsParam ? skillsParam.split(",") : [];
       dispatch(setSearch(search));
-      dispatch(setCity(city));
       dispatch(setSkills(skills));
       setLocalSearch(search);
       isFirstRender.current = false;
     }
   }, [searchParams, dispatch]);
 
-  // 2. Синхронизация фильтров с URL при их изменении
+  // Синхронизация фильтров с URL
   useEffect(() => {
     const params = new URLSearchParams();
     if (filters.search) params.set("search", filters.search);
-    if (filters.city) params.set("city", filters.city);
     if (filters.skills.length) params.set("skills", filters.skills.join(","));
     setSearchParams(params, { replace: true });
-  }, [filters.search, filters.city, filters.skills, setSearchParams]);
+  }, [filters.search, filters.skills, setSearchParams]);
 
-  // 3. Debounce для поиска
+  // Debounce
   useEffect(() => {
     dispatch(setSearch(debouncedSearch));
   }, [debouncedSearch, dispatch]);
 
-  // 4. Сброс страницы при изменении фильтров
+  // Сброс страницы при изменении фильтров
   useEffect(() => {
     dispatch(setCurrentPage(1));
-  }, [filters.search, filters.city, filters.skills, dispatch]);
+  }, [filters.search, filters.skills, dispatch]);
 
-  // 5. Загрузка вакансий
+  // Загрузка вакансий
   useEffect(() => {
     const loadVacancies = async () => {
       dispatch(fetchVacanciesStart());
       try {
         const { items, total } = await fetchJobs({
           search: filters.search,
-          city: filters.city === "" ? undefined : filters.city,
+          city: city,
           skills: filters.skills,
           page: currentPage,
           limit: itemsPerPage,
@@ -103,16 +107,22 @@ export default function VacanciesPage() {
     loadVacancies();
   }, [
     filters.search,
-    filters.city,
     filters.skills,
     currentPage,
     itemsPerPage,
+    city,
     dispatch,
   ]);
 
   const handleSearchClick = () => {
     dispatch(setSearch(localSearch));
     dispatch(setCurrentPage(1));
+  };
+
+  const handleTabChange = (value: string | null) => {
+    if (value) {
+      navigate(`/vacancies/${value}`);
+    }
   };
 
   return (
@@ -124,7 +134,6 @@ export default function VacanciesPage() {
         paddingBottom: "32px",
       }}>
       <Container size='xl'>
-        {/* Верхняя строка */}
         <Flex
           justify='space-between'
           align='flex-start'
@@ -188,14 +197,23 @@ export default function VacanciesPage() {
           </Group>
         </Flex>
 
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          mb='lg'>
+          <Tabs.List>
+            <Tabs.Tab value='moscow'>Москва</Tabs.Tab>
+            <Tabs.Tab value='petersburg'>Санкт-Петербург</Tabs.Tab>
+          </Tabs.List>
+        </Tabs>
+
         <Grid gutter='xl'>
-          {/* Левая колонка — сайдбар */}
           <Grid.Col span={{ base: 12, md: 3 }}>
             <Paper
               shadow='none'
               p='md'
               radius='md'
-              style={{ backgroundColor: theme.white, marginBottom: "24px" }}>
+              style={{ backgroundColor: theme.white }}>
               <Title
                 order={3}
                 size='h4'
@@ -205,16 +223,8 @@ export default function VacanciesPage() {
               </Title>
               <SkillsInput />
             </Paper>
-            <Paper
-              shadow='none'
-              p='md'
-              radius='md'
-              style={{ backgroundColor: theme.white }}>
-              <CitySelect />
-            </Paper>
           </Grid.Col>
 
-          {/* Правая колонка — список вакансий */}
           <Grid.Col span={{ base: 12, md: 9 }}>
             <VacanciesList />
             <Space h='xl' />
